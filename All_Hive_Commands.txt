@@ -1,0 +1,60 @@
+#We move the Output of the MapReduce programs to hive tables
+#Linking of Data is done using the mapping tables.
+
+#For ICXXXX_PY Tables
+create external table IC_PY (unitid string, cipcode1 string, cipcode2 string, cipcode3 string, cipcode4 string, year string) row format delimited fields terminated by ',' location '/user/tsb348/hive_IC/';
+
+#For CXXXX_A Tables
+create external table C_A_Data (unitid int, cipcode1 string, grand_total int, year string) row format delimited fields terminated by ',' location '/user/tsb348/hive_ca/';
+
+#CIPCODE Details 
+CREATE TABLE cipcode 
+  (family string, code string, action string, change string, title string, definiton string, crossref string, examples string) 
+row format delimited fields terminated by ',' location '/user/tsb348/hive_cipcode/'
+tblproperties("skip.header.line.count"="1"); 
+
+#HDXXXX Tables - Institute Details (UNITID, Name, State) - Use hd_final 
+CREATE TABLE hd_table
+  (unitid int, name string, state string) 
+row format delimited fields terminated by ',' location '/user/tsb348/hive_hd/';
+
+create table hd_final as select distinct unitid, name, state from hd_table where state rlike '[A-Z]{2}';
+
+#Get Total people graduating per cipcode (With help of the mappings)
+select co.cip, CONCAT(co.edmin,co.sestat) as edu, SUM(ca.grand_total) as total from C_A_data as ca, convert as co where ca.year=2015 and substring(ca.cipcode1,1,5)=co.cip group by co.cip, co.edmin, co.sestat;
+
+#Mapping Table between NCES and NSCG data
+Create external table convert (edmin string, sestat string, desc string, cip string)
+row format delimited fields terminated by ','
+location '/user/tsb348/hive_person/conversion/'
+tblproperties("skip.header.line.count"="1"); 
+
+#Mapping between NCES and Industry Code
+create external table jobind (jobcode string, indcode string)
+row format delimited fields terminated by ','
+location '/user/hi348/naics/output/';
+
+#Mapping between NSCG and BLS
+create external table edoc (edmin string, ocmin string)
+row format delimited fields terminated by ','
+location '/user/hi348/edoc/';
+
+create external table ind_to_naics (indcode string, naics string, exnaics string)
+row format delimited fields terminated by ','
+location '/user/hi348/naics/';
+
+#NSCG Data with required fields
+create external table nscg (bsdgn int, dgrdg string, dgryr string, emst string, grloanr int, grower int, hdacy3 int, hdacyr int, hdacy5 int, hdincd string, hdst string, lwyr int, n2oclst string, n2ocpr string, ndgrmed string, nrrea string, salary int, ugloanr int, ugower int, wtsurvy double)
+row format delimited fields terminated by ','
+location '/user/hi348/proj/';
+
+#To get Earning Stats
+create external table earn (desc string, ces string, earning bigint)
+row format delimited fields terminated by ','
+location '/user/hi348/earn';
+
+#To get Breakeven Details
+select earn.ces, 4*avg(((10000*(ugloanr-3)+5000)+(10000*(grloanr-3)+5000)) / earning) as avgbreakeven
+from earn, cestocip, nscg, convert
+where earn.ces = cestocip.ces and cestocip.cipf = substr(convert.cip,1,2) and concat(edmin,sestat) = substr(ndgrmed,1,5) and grloanr > 2 and ugloanr > 2
+group by earn.ces;
